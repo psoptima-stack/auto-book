@@ -1,0 +1,19 @@
+# 가상환경
+venv/
+.venv/
+
+# 파이썬
+__pycache__/
+*.py[cod]
+
+# fix_numerals.py가 남기는 백업
+*.bak
+
+# 내려받은 원문 — fetch_gutenberg.py로 다시 받을 수 있다
+data/raw/
+
+# 파싱 결과 — parse_poems.py로 다시 만들 수 있다
+data/poems*.json
+
+# 빌드 결과물 — 빌더로 다시 만들 수 있다
+output/

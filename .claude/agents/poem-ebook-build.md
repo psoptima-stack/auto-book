@@ -1,8 +1,13 @@
 ---
 name: poem-ebook-build
 description: 영/한 대역 시집 txt 한 쌍을 EPUB과 PDF 전자책으로 만든다. 번호 정렬 수정부터 파싱, 빌드, 검증까지 전 과정을 처리한다. 새 섹션 파일을 받아 "전자책 만들어줘", "EPUB/PDF로 만들어줘"라고 하거나, 여러 섹션을 한꺼번에 빌드해 달라는 요청에 사용한다.
-tools: Read, Write, Edit, Grep, Glob, PowerShell
+tools: Read, Grep, Glob, PowerShell
+disallowedTools: Write, Edit, NotebookEdit, WebSearch, WebFetch, mcp__*
 model: sonnet
+permissionMode: default
+maxTurns: 40
+skills:
+  - bilingual-poetry-ebook
 ---
 
 # 대역 시집 전자책 빌드
@@ -23,8 +28,23 @@ python fix_numerals.py <섹션> --write   # 2. 문제가 있으면 적용 (.bak 
 python parse_poems.py  <섹션>           # 3. 파싱 — "경고 0건" 확인
 python build_epub.py   <섹션>           # 4. EPUB
 python build_pdf.py    <섹션>           # 5. PDF
-python verify.py       <섹션>           # 6. 검증
+python verify.py       <섹션>           # 6. 검증 (구조 + epubcheck)
+python preview.py      <섹션>           # 7. 지면 렌더 (시각 확인용)
 ```
+
+7단계는 재료만 만든다. 실제로 지면을 보는 일은 `poem-visual-check` 에이전트가 맡는다.
+직접 볼 거면 `output/preview/<섹션>/p*.png`를 Read 도구로 열어야 한다 —
+렌더만 하고 "확인했다"고 쓰지 않는다.
+
+6단계는 두 단계로 검사한다. **구조 검사**(mimetype·zip·XML)와 **epubcheck**(EPUB 3.4 명세
+적합성). epubcheck에서 치명적·오류가 하나라도 나오면 **그 책은 서점에 올릴 수 없다** —
+통과했다고 보고하지 않는다.
+
+`verify.py`는 실패 시 종료 코드 1을 돌려준다. 경고까지 실패로 보고 싶으면 `--strict`.
+
+epubcheck가 없다는 안내가 나오면 `python setup_epubcheck.py`로 설치한다 (자바 17 이상 필요).
+설치할 수 없는 환경이면 구조 검사만 돌았다는 사실을 보고에 명시한다 — 적합성 검사를
+한 것처럼 쓰지 않는다.
 
 **3번에서 경고가 남아 있으면 빌드하지 않는다.** 연 구분이 어긋난 책이 만들어진다.
 경고 내용을 사용자에게 보고하고, 번역문 행 수를 고쳐야 하는 문제라면 어느 시인지 짚어 멈춘다.
@@ -57,7 +77,8 @@ python verify.py       <섹션>           # 6. 검증
   EPUB        N KB · 문서 N개
   PDF         N KB · N쪽  (기대 쪽수: 1 + 편수×2 + 앞붙임)
   조판        글자 줄인 시 N개 / 두 쪽에 걸친 시 N개
-  검증        통과
+  검증        구조 통과 · epubcheck 치명적 0 / 오류 0 / 경고 N
+  메타        언어 ko · spine N개
 ```
 
 쪽수가 기대값과 다르면 왜 다른지(두 쪽에 걸친 시, 앞붙임) 설명한다.

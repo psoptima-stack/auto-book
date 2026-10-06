@@ -18,12 +18,29 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.platypus import (BaseDocTemplate, Frame, PageBreak, PageTemplate,
-                                Paragraph, Spacer)
+from reportlab.platypus import (BaseDocTemplate, Frame, KeepTogether, PageBreak,
+                                PageTemplate, Paragraph, Spacer)
 
 import front_matter
 
 ROOT = Path(__file__).parent
+
+
+class MappedDoc(BaseDocTemplate):
+    """각 시가 몇 쪽에 실렸는지 기록하는 문서 템플릿.
+
+    번호 Paragraph에 _key를 달아 두면, 조판이 끝난 직후의 self.page를 받아 적는다.
+    시각 확인(preview.py)이 '줄인 시'·'두 쪽에 걸친 시'를 정확히 겨냥하는 데 쓴다.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.page_map: dict[str, int] = {}
+
+    def afterFlowable(self, flowable) -> None:
+        key = getattr(flowable, "_key", None)
+        if key and key not in self.page_map:
+            self.page_map[key] = self.page
 
 KO_FONTS = [
     (r"C:\Windows\Fonts\batang.ttc", "Batang", 0),      # 명조 계열 — 시집에 어울린다
@@ -90,7 +107,7 @@ def build(section: str) -> None:
                              firstLineIndent=4 * mm, spaceAfter=2.5 * mm)
 
     out.parent.mkdir(parents=True, exist_ok=True)
-    doc = BaseDocTemplate(
+    doc = MappedDoc(
         str(out), pagesize=A5,
         leftMargin=18 * mm, rightMargin=18 * mm,
         topMargin=18 * mm, bottomMargin=16 * mm,
@@ -137,7 +154,9 @@ def build(section: str) -> None:
     def page_flowables(poem: dict, lang: str, scale: float) -> list:
         """한 쪽 분량의 플로어블 목록을 주어진 배율로 만든다."""
         base = en_line if lang == "en" else ko_line
-        out = [Paragraph(f'{escape(poem["numeral"])}.', numeral)]
+        head = Paragraph(f'{escape(poem["numeral"])}.', numeral)
+        head._key = f'{poem["numeral"]}:{lang}'   # MappedDoc이 쪽 번호를 기록한다
+        out = [head]
 
         if poem["title"] and poem["title"][lang]:
             out.append(Paragraph(escape(poem["title"][lang]),
@@ -150,16 +169,24 @@ def build(section: str) -> None:
             f'{base.name}_{poem["no"]}_{scale:.2f}', parent=base,
             fontSize=base.fontSize * scale, leading=base.leading * scale,
         )
+        # 연 단위로 묶는다. 묶지 않으면 두 쪽에 걸친 시에서 연이 중간에 끊겨
+        # 한 줄만 다음 쪽에 혼자 남는다(고아 줄). 쪽 경계는 연 사이에만 생겨야 한다.
         for stanza in poem["stanzas"]:
-            for line in stanza[lang]:
-                out.append(Paragraph(escape(line), style))
+            lines = [Paragraph(escape(line), style) for line in stanza[lang]]
+            out.append(KeepTogether(lines))
             out.append(Spacer(1, 3.5 * mm * scale))
         return out
 
     def height_of(flowables: list) -> float:
-        """실제 조판 높이 — 줄바꿈으로 늘어나는 분량까지 반영한다."""
+        """실제 조판 높이 — 줄바꿈으로 늘어나는 분량까지 반영한다.
+
+        KeepTogether는 캔버스 없이 wrap()을 못 하므로 내부 요소를 직접 잰다.
+        """
         total = 0.0
         for f in flowables:
+            if isinstance(f, KeepTogether):
+                total += height_of(f._content)
+                continue
             total += f.wrap(doc.width, doc.height)[1]
             total += getattr(f, "getSpaceBefore", lambda: 0)()
             total += getattr(f, "getSpaceAfter", lambda: 0)()
@@ -194,6 +221,21 @@ def build(section: str) -> None:
             story.append(PageBreak())
 
     doc.build(story)
+
+    # 쪽 지도 — preview.py가 '줄인 시'·'두 쪽에 걸친 시'를 겨냥하는 데 쓴다.
+    scales = {t.split("(")[0] + ":" + t.split("(")[1].split(")")[0]: t.split()[-1]
+              for t in tight}
+    page_map = ROOT / "data" / f"pagemap_{section}.json"
+    page_map.parent.mkdir(parents=True, exist_ok=True)
+    page_map.write_text(json.dumps({
+        "section": section,
+        "pages": doc.page,
+        "front_matter": len(front),
+        "poems": doc.page_map,                                  # "I:en" -> 쪽 번호
+        "shrunk": scales,                                       # "X:en" -> "96%"
+        "spread": [s.replace("(", ":").rstrip(")") for s in spread],
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+
     if tight:
         print(f"  글자를 줄여 한 쪽에 맞춘 곳 {len(tight)}개: {', '.join(tight)}")
     if spread:
@@ -201,6 +243,7 @@ def build(section: str) -> None:
     print(f"[{section}] {out.name} ({out.stat().st_size:,} bytes, {doc.page}쪽) "
           f"— 시 {len(poems)}편")
     print(f"  본문 폰트: Times-Roman(원문) / {ko_font}(번역)")
+    print(f"  쪽 지도: {page_map.name}")
 
 
 if __name__ == "__main__":

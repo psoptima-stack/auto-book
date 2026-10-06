@@ -183,7 +183,9 @@ z.writestr(zipfile.ZipInfo("mimetype"), "application/epub+zip",
 
 **EPUB 문서 수** — `2(표지·목차) + 앞붙임 수 + 편수 × 2`
 
-**EPUB 구조** — 아래를 모두 통과해야 한다.
+EPUB은 두 단계로 검사한다.
+
+### 1단계 — 구조 (빠르고 원인이 분명하다)
 
 ```python
 z = zipfile.ZipFile(path)
@@ -192,6 +194,67 @@ z.getinfo("mimetype").compress_type == zipfile.ZIP_STORED        # 무압축
 z.testzip() is None                                              # zip 무결성
 minidom.parseString(z.read(f))                                   # 모든 xhtml/opf/xml 파싱
 ```
+
+### 2단계 — epubcheck (서점 업로드 가능 여부를 가리는 판정)
+
+[W3C epubcheck](https://github.com/w3c/epubcheck)로 EPUB 3.4 명세 적합성을 검사한다.
+1단계는 "리더가 열리기는 하는가"만 보고, 실제 유통 가능 여부는 이쪽이 판정한다.
+
+- 설치: `python setup_epubcheck.py` → `tools/epubcheck-<버전>/epubcheck.jar`
+- **자바 17 이상이 필요하다.** 없으면 `winget install Microsoft.OpenJDK.17`
+- `verify.py`가 `--json`으로 결과를 받아 파싱한다. 콘솔 출력은 로케일에 따라
+  한국어로 나오면서 깨지므로 **직접 읽지 말고 JSON을 쓴다**
+- **치명적·오류가 하나라도 있으면 그 책은 올릴 수 없다.** 통과했다고 보고하지 않는다
+- 경고까지 실패로 보려면 `verify.py --strict`
+- epubcheck를 못 돌린 경우, 구조 검사만 했다는 사실을 보고에 명시한다
+
+epubcheck는 `publication` 메타데이터도 보고한다 — spine 수, 대표 언어, 제목.
+빌드가 의도대로 됐는지 교차 확인할 때 쓴다.
+
+**함정 — `dc:language`를 여러 개 선언하지 않는다.** `ko`와 `en`을 함께 선언하면
+epubcheck와 일부 서점이 **마지막 값을 대표 언어로** 잡아, 한국어 책이 영어로 등록된다.
+`dc:language`에는 주 언어(`ko`)만 두고, 원문 영어는 각 요소의 `xml:lang="en"`으로 표시한다.
+적합성 검사는 통과하므로 오류로 드러나지 않는다 — 메타데이터 보고를 눈으로 확인해야 잡힌다.
+
+## 시각 확인
+
+`verify.py`는 **명세에 맞는가**만 본다. 지면이 실제로 어떻게 보이는지는 보지 않는다.
+글자 겹침, 고아 줄, 축소된 시의 가독성은 **지면을 봐야** 안다.
+
+```powershell
+python preview.py <섹션>                 # 위험한 쪽 자동 선정 + PNG 렌더
+python preview.py <섹션> --pages 31,32    # 쪽 지정
+python preview.py <섹션> --dpi 200        # 글자를 자세히
+```
+
+렌더된 `output/preview/<섹션>/p*.png`를 **Read 도구로 실제로 열어 본다.**
+렌더만 하고 "확인했다"고 쓰면 아무것도 확인하지 않은 것이다.
+
+자동 선정은 무작위 표본이 아니라 **위험한 쪽을 겨냥한다** — 표지, 앞붙임, 첫 시 한 쌍,
+가장 많이 줄인 시, 두 쪽에 걸친 시의 양쪽. 쪽 지도(`data/pagemap_<섹션>.json`)를 근거로 고른다.
+이 지도는 `build_pdf.py`가 조판하면서 각 시가 몇 쪽에 실렸는지 기록한 것이다.
+
+**EPUB**은 리더가 조판하므로 이미지로 뽑을 수 없다. `preview.py`가 압축을 풀고 `file://`
+주소를 출력하면 **Playwright MCP**(`.mcp.json`의 `playwright`)로 열어 본다. 독자가 글자
+크기를 바꾸므로 조판 정밀도가 아니라 구조를 확인한다 — 표지·목차, 원문/번역 화면 분리, 한글 표시.
+
+### 실제로 잡힌 결함
+
+**연이 쪽 경계에서 끊겨 고아 줄이 생겼다.** 두 쪽에 걸친 시에서 이전 연의 마지막 한 줄만
+다음 쪽 머리에 혼자 떨어졌다. epubcheck도 `verify.py`도 잡지 못했고, 지면을 보고서야 드러났다.
+
+고친 방법 — 연을 `KeepTogether`로 묶어 쪽 경계가 연 사이에만 생기게 한다.
+
+```python
+for stanza in poem["stanzas"]:
+    lines = [Paragraph(escape(line), style) for line in stanza[lang]]
+    out.append(KeepTogether(lines))          # 연 중간에서 끊기지 않는다
+    out.append(Spacer(1, 3.5 * mm * scale))
+```
+
+**함정** — `KeepTogether`는 캔버스 없이 `wrap()`을 호출할 수 없다. 쪽 넘침을 재는
+`height_of()`가 `AttributeError: 'KeepTogether' object has no attribute 'canv'`로 죽는다.
+내부 `_content`를 재귀적으로 재야 한다.
 
 ## 스크립트
 
@@ -204,7 +267,9 @@ minidom.parseString(z.read(f))                                   # 모든 xhtml/
 | `front_matter.py` | 앞붙임 로더 — 두 빌더가 공유. `FIRST_SECTION`으로 실을 권을 정한다 |
 | `build_epub.py` | JSON + 앞붙임 → `output/dickinson_<섹션>.epub` |
 | `build_pdf.py` | JSON + 앞붙임 → `output/dickinson_<섹션>.pdf` |
-| `verify.py` | 쪽수·문서 수·EPUB 구조 검증 (섹션 여러 개 나열 가능) |
+| `verify.py` | 구조 + epubcheck 적합성 검증 (섹션 여러 개 나열 가능) |
+| `setup_epubcheck.py` | epubcheck jar 설치 (자바 17 이상 필요) |
+| `preview.py` | 지면을 PNG로 렌더 + EPUB 압축 해제 (시각 확인용) |
 | `diag_align.py` | (보조) 두 파일 정렬 상태 상세 진단 |
 | `to_pdf.py` | (별도) 일반 텍스트 파일 → PDF |
 

@@ -2,7 +2,12 @@
 name: poem-align-check
 description: 영/한 대역 시집 txt 한 쌍의 정렬 상태를 진단한다. 번호 표기 불일치, 편수 불일치, 연·행 수 어긋남을 찾아 보고하되 파일은 고치지 않는다. 새 섹션 파일을 받았을 때 빌드 전에 먼저 돌리거나, "정렬 확인해줘", "번호 맞는지 봐줘", "빌드해도 되는 상태야?"라는 요청에 사용한다.
 tools: Read, Grep, Glob, PowerShell
+disallowedTools: Write, Edit, NotebookEdit, WebSearch, WebFetch, mcp__*
 model: sonnet
+permissionMode: default
+maxTurns: 15
+skills:
+  - bilingual-poetry-ebook
 ---
 
 # 대역 시집 정렬 진단

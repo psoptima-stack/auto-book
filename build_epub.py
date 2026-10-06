@@ -191,8 +191,10 @@ def build(section: str) -> None:
     <dc:identifier id="book-id">{book_id}</dc:identifier>
     <dc:title>{escape(meta["title"]["ko"])}</dc:title>
     <dc:creator>{escape(meta["author"]["ko"])}</dc:creator>
+    <!-- 주 언어만 선언한다. dc:language를 여러 개 두면 epubcheck와 일부 서점이
+         마지막 값을 대표 언어로 잡아, 한국어 책이 영어로 등록된다.
+         원문 영어는 각 요소의 xml:lang="en"으로 표시한다. -->
     <dc:language>ko</dc:language>
-    <dc:language>en</dc:language>
     <dc:source>{escape(meta["source"])}</dc:source>
     <dc:rights>{escape(meta["rights"])}</dc:rights>
     <meta property="dcterms:modified">2026-09-11T00:00:00Z</meta>

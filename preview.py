@@ -20,6 +20,11 @@ import sys
 import zipfile
 from pathlib import Path
 
+# 훅이나 Git Bash에서 돌면 콘솔 코드페이지가 cp949라 한글 출력에서 죽는다.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 ROOT = Path(__file__).parent
 PREVIEW = ROOT / "output" / "preview"
 DEFAULT_DPI = 120

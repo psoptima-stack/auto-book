@@ -22,6 +22,11 @@ import zipfile
 from pathlib import Path
 from xml.dom import minidom
 
+# 훅이나 Git Bash에서 돌면 콘솔 코드페이지가 cp949라 한글·em-dash 출력에서 죽는다.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 ROOT = Path(__file__).parent
 SECTIONS = ["01_life", "02_love", "03_nature", "04_time_and_eternity"]
 

@@ -66,9 +66,10 @@ def register_ko_font() -> str:
     return "Helvetica"
 
 
-def build(section: str) -> None:
+def build(section: str, out: Path | None = None) -> None:
     src = ROOT / "data" / f"poems_{section}.json"
-    out = ROOT / "output" / f"dickinson_{section}.pdf"
+    # --out을 주면 기존 결과물을 덮어쓰지 않고 새 파일로 쓴다.
+    out = Path(out) if out else ROOT / "output" / f"dickinson_{section}.pdf"
     if not src.exists():
         raise SystemExit(f"먼저 parse_poems.py 를 실행하세요: {src.name} 없음")
 
@@ -225,7 +226,9 @@ def build(section: str) -> None:
     # 쪽 지도 — preview.py가 '줄인 시'·'두 쪽에 걸친 시'를 겨냥하는 데 쓴다.
     scales = {t.split("(")[0] + ":" + t.split("(")[1].split(")")[0]: t.split()[-1]
               for t in tight}
-    page_map = ROOT / "data" / f"pagemap_{section}.json"
+    # 쪽 지도는 출력 파일 이름을 따라간다 — 새 파일로 빌드해도 기존 지도를 덮어쓰지 않는다.
+    stem = out.stem.removeprefix("dickinson_")
+    page_map = ROOT / "data" / f"pagemap_{stem}.json"
     page_map.parent.mkdir(parents=True, exist_ok=True)
     page_map.write_text(json.dumps({
         "section": section,
@@ -249,4 +252,7 @@ def build(section: str) -> None:
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("section", help="예: 01_life, 02_love")
-    build(ap.parse_args().section)
+    ap.add_argument("-o", "--out", type=Path,
+                    help="출력 경로. 생략하면 output/dickinson_<섹션>.pdf 를 덮어쓴다")
+    args = ap.parse_args()
+    build(args.section, args.out)
